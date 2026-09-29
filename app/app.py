@@ -1,18 +1,29 @@
 """
-app.py -- chat interface.   Run with:  streamlit run app.py
+app.py -- chat interface.   Run with:  streamlit run app/app.py
 """
 
+import os
 import time
 
 import streamlit as st
 
+import ingest
 import llm
+import loaders
 import rag_engine as engine
+import store
+
+UPLOAD_DIR = "/tmp/documents"
 
 st.set_page_config(page_title="Knowledge Assistant", page_icon="📚", layout="centered")
 st.title("📚 Personal Knowledge Assistant")
 
-# ---------- sidebar: privacy status, scope, summarize ----------
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
+
+# ---------- sidebar: privacy status ----------
 with st.sidebar:
     st.header("Privacy")
     if llm.is_local():
@@ -23,6 +34,30 @@ with st.sidebar:
                 if engine.redaction_enabled() else " Redaction is OFF.")
         st.warning(msg + " Set LLM_PROVIDER=ollama for fully local use.")
 
+# ---------- sidebar: upload + index documents ----------
+with st.sidebar:
+    st.header("Add documents")
+    exts = sorted(e.lstrip(".") for e in loaders.SUPPORTED)
+    uploads = st.file_uploader(
+        "Upload files", type=exts, accept_multiple_files=True,
+        key=f"uploader_{st.session_state.uploader_key}",
+    )
+    if uploads and st.button("Index files"):
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        try:
+            collection = store.get_collection()
+            with st.spinner("Indexing..."):
+                for f in uploads:
+                    path = os.path.join(UPLOAD_DIR, os.path.basename(f.name))
+                    with open(path, "wb") as out:
+                        out.write(f.getbuffer())
+                    ingest.ingest_file(collection, UPLOAD_DIR, path)
+            st.session_state.uploader_key += 1  # clears the uploader
+            st.rerun()
+        except Exception as e:
+            st.error(f"Indexing failed: {e}")
+
+# ---------- load index ----------
 try:
     available = engine.list_sources()
 except Exception as e:
@@ -30,9 +65,10 @@ except Exception as e:
     st.stop()
 
 if not available:
-    st.warning("Nothing indexed yet. Put files in `documents/`, run `python3 ingest.py`, then refresh.")
+    st.info("Nothing indexed yet. Upload a file from the sidebar and click **Index files**.")
     st.stop()
 
+# ---------- sidebar: scope, summarize ----------
 with st.sidebar:
     st.header("Scope")
     chosen = st.multiselect("Only search these files", list(available))
@@ -49,9 +85,6 @@ with st.sidebar:
         st.rerun()
 
 st.caption(f"📖 {sum(available.values())} chunks from {len(available)} files indexed")
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
 
 
 def show_sources(sources):
