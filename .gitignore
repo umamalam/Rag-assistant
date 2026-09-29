@@ -1,0 +1,8 @@
+# your private data never goes into git
+documents/
+data/
+.env
+__pycache__/
+.venv/
+.DS_Store
+.DS_Store

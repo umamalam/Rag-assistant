@@ -1,0 +1,5 @@
+[server]
+address = "localhost"     # don't expose the chat UI to your network
+
+[browser]
+gatherUsageStats = false
